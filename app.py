@@ -1,31 +1,39 @@
-#!/usr/bin/env python
-
 from __future__ import annotations
-
 import os
 import random
 import uuid
-
+from datetime import datetime
 import gradio as gr
 import numpy as np
 from PIL import Image
 import torch
 from diffusers import PixArtAlphaPipeline, DPMSolverMultistepScheduler
 from sa_solver_diffusers import SASolverScheduler
+from transformers import T5EncoderModel
 
+# Import argparse for command line argument parsing
+import argparse
 
-DESCRIPTION = """![Logo](https://raw.githubusercontent.com/PixArt-alpha/PixArt-alpha.github.io/master/static/images/logo.png)
-        # PixArt-Alpha 1024px
-        #### [PixArt-Alpha 1024px](https://github.com/PixArt-alpha/PixArt-alpha) is a transformer-based text-to-image diffusion system trained on text embeddings from T5. This demo uses the [PixArt-alpha/PixArt-XL-2-1024-MS](https://huggingface.co/PixArt-alpha/PixArt-XL-2-1024-MS) checkpoint.
-        #### English prompts ONLY; 提示词仅限英文
-        Don't want to queue? Try [OpenXLab](https://openxlab.org.cn/apps/detail/PixArt-alpha/PixArt-alpha) or [Google Colab Demo](https://colab.research.google.com/drive/1jZ5UZXk7tcpTfVwnX33dDuefNMcnW9ME?usp=sharing).
-        ### <span style='color: red;'>You may change the DPM-Solver inference steps from 14 to 20, if you didn't get satisfied results.
+# Define command line arguments
+parser = argparse.ArgumentParser(description="Gradio App with 8bit and 512model options")
+
+# Rename the arguments to valid Python identifiers
+parser.add_argument("--use_8bit", action="store_true", help="Use 8bit option")
+parser.add_argument("--use_512model", action="store_true", help="Use 512model option")
+
+args = parser.parse_args()
+
+# Access the arguments correctly
+use_8bit = args.use_8bit
+use_512model = args.use_512model
+
+DESCRIPTION = """Original Source https://pixart-alpha.github.io/ \n
+			This APP is modified and brought you by SECourses : https://www.patreon.com/SECourses
         """
 if not torch.cuda.is_available():
     DESCRIPTION += "\n<p>Running on CPU �� This demo does not work on CPU.</p>"
 
 MAX_SEED = np.iinfo(np.int32).max
-CACHE_EXAMPLES = torch.cuda.is_available() and os.getenv("CACHE_EXAMPLES", "1") == "1"
 MAX_IMAGE_SIZE = int(os.getenv("MAX_IMAGE_SIZE", "2048"))
 USE_TORCH_COMPILE = os.getenv("USE_TORCH_COMPILE", "0") == "1"
 ENABLE_CPU_OFFLOAD = os.getenv("ENABLE_CPU_OFFLOAD", "0") == "1"
@@ -92,6 +100,17 @@ SCHEDULE_NAME = ["DPM-Solver", "SA-Solver"]
 DEFAULT_SCHEDULE_NAME = "DPM-Solver"
 NUM_IMAGES_PER_PROMPT = 1
 
+if use_512model:
+    model_path = "PixArt-alpha/PixArt-XL-2-512x512"
+else:
+    model_path = "PixArt-alpha/PixArt-XL-2-1024-MS"
+	
+	
+if use_512model:
+    use_res = 512
+else:
+    use_res = 1024	
+
 
 def apply_style(style_name: str, positive: str, negative: str = "") -> Tuple[str, str]:
     p, n = styles.get(style_name, styles[DEFAULT_STYLE_NAME])
@@ -101,11 +120,25 @@ def apply_style(style_name: str, positive: str, negative: str = "") -> Tuple[str
 
 
 if torch.cuda.is_available():
-    pipe = PixArtAlphaPipeline.from_pretrained(
-        "PixArt-alpha/PixArt-XL-2-1024-MS",
-        torch_dtype=torch.float16,
-        use_safetensors=True,
-    )
+    if use_8bit:
+        text_encoder = T5EncoderModel.from_pretrained(
+            model_path,
+            subfolder="text_encoder",
+            load_in_8bit=True,
+            device_map="auto",
+        )
+        pipe = PixArtAlphaPipeline.from_pretrained(
+            model_path,
+            text_encoder=text_encoder,
+            torch_dtype=torch.float16,
+            device_map="auto"
+        )
+    else:
+        pipe = PixArtAlphaPipeline.from_pretrained(
+            model_path,
+            torch_dtype=torch.float16,
+            use_safetensors=True,
+        )
 
     if ENABLE_CPU_OFFLOAD:
         pipe.enable_model_cpu_offload()
@@ -120,83 +153,90 @@ if torch.cuda.is_available():
         pipe.transformer = torch.compile(pipe.transformer, mode="reduce-overhead", fullgraph=True)
         print("Model Compiled!")
 
+def create_output_folders():
+    base_dir = "outputs"
+    today = datetime.now().strftime("%Y-%m-%d")
+    folder_path = os.path.join(base_dir, today)
+    if not os.path.exists(folder_path):
+        os.makedirs(folder_path)
+    return folder_path
 
+# Modified save_image function
 def save_image(img):
+    folder_path = create_output_folders()
     unique_name = str(uuid.uuid4()) + ".png"
-    img.save(unique_name)
-    return unique_name
+    file_path = os.path.join(folder_path, unique_name)
+    img.save(file_path)
+    return file_path
 
-
+# Modified randomize_seed_fn function
 def randomize_seed_fn(seed: int, randomize_seed: bool) -> int:
     if randomize_seed:
         seed = random.randint(0, MAX_SEED)
     return seed
 
-
+# Modified generate function to include batch count
 def generate(
     prompt: str,
     negative_prompt: str = "",
     style: str = DEFAULT_STYLE_NAME,
     use_negative_prompt: bool = False,
     seed: int = 0,
-    width: int = 1024,
-    height: int = 1024,
-    schedule: str = 'DPM-Solver',
+    width: int = use_res,
+    height: int = use_res,
+    schedule: str = DEFAULT_SCHEDULE_NAME,
     dpms_guidance_scale: float = 4.5,
     sas_guidance_scale: float = 3,
     dpms_inference_steps: int = 20,
     sas_inference_steps: int = 25,
     randomize_seed: bool = False,
+    batch_count: str = "1",
     use_resolution_binning: bool = True,
     progress=gr.Progress(track_tqdm=True),
 ):
-    seed = int(randomize_seed_fn(seed, randomize_seed))
-    generator = torch.Generator().manual_seed(seed)
+    image_paths = []
+    print(f"batch_count {batch_count}")
+    batch_count_int = int(batch_count)
+    for _ in range(batch_count_int):
+        seed = int(randomize_seed_fn(seed, randomize_seed))
+        generator = torch.Generator().manual_seed(seed)
 
-    if schedule == 'DPM-Solver':
-        if not isinstance(pipe.scheduler, DPMSolverMultistepScheduler):
-            pipe.scheduler = DPMSolverMultistepScheduler()
-        num_inference_steps = dpms_inference_steps
-        guidance_scale = dpms_guidance_scale
-    elif schedule == "SA-Solver":
-        if not isinstance(pipe.scheduler, SASolverScheduler):
-            pipe.scheduler = SASolverScheduler.from_config(pipe.scheduler.config, algorithm_type='data_prediction', tau_func=lambda t: 1 if 200 <= t <= 800 else 0, predictor_order=2, corrector_order=2)
-        num_inference_steps = sas_inference_steps
-        guidance_scale = sas_guidance_scale
-    else:
-        raise ValueError(f"Unknown schedule: {schedule}")
+        if schedule == 'DPM-Solver':
+            if not isinstance(pipe.scheduler, DPMSolverMultistepScheduler):
+                pipe.scheduler = DPMSolverMultistepScheduler()
+            num_inference_steps = dpms_inference_steps
+            guidance_scale = dpms_guidance_scale
+        elif schedule == "SA-Solver":
+            if not isinstance(pipe.scheduler, SASolverScheduler):
+                pipe.scheduler = SASolverScheduler.from_config(pipe.scheduler.config, algorithm_type='data_prediction', tau_func=lambda t: 1 if 200 <= t <= 800 else 0, predictor_order=2, corrector_order=2)
+            num_inference_steps = sas_inference_steps
+            guidance_scale = sas_guidance_scale
+        else:
+            raise ValueError(f"Unknown schedule: {schedule}")
 
-    if not use_negative_prompt:
-        negative_prompt = None  # type: ignore
-    prompt, negative_prompt = apply_style(style, prompt, negative_prompt)
+        if not use_negative_prompt:
+            negative_prompt = None  # type: ignore
+        prompt, negative_prompt = apply_style(style, prompt, negative_prompt)
 
-    images = pipe(
-        prompt=prompt,
-        width=width,
-        height=height,
-        guidance_scale=guidance_scale,
-        num_inference_steps=num_inference_steps,
-        generator=generator,
-        num_images_per_prompt=NUM_IMAGES_PER_PROMPT,
-        use_resolution_binning=use_resolution_binning,
-        output_type="pil",
-    ).images
+        images = pipe(
+            prompt=prompt,
+            width=width,
+            height=height,
+            guidance_scale=guidance_scale,
+            num_inference_steps=num_inference_steps,
+            generator=generator,
+            num_images_per_prompt=NUM_IMAGES_PER_PROMPT,
+            use_resolution_binning=use_resolution_binning,
+            output_type="pil",
+        ).images
 
-    image_paths = [save_image(img) for img in images]
-    print(image_paths)
+        image_paths.extend([save_image(img) for img in images])
+
     return image_paths, seed
 
 
 examples = [
-    "A small cactus with a happy face in the Sahara desert.",
-    "an astronaut sitting in a diner, eating fries, cinematic, analog film",
-    "Pirate ship trapped in a cosmic maelstrom nebula, rendered in cosmic beach whirlpool engine, volumetric lighting, spectacular, ambient lights, light pollution, cinematic atmosphere, art nouveau style, illustration art artwork by SenseiJaye, intricate detail.",
-    "stars, water, brilliantly, gorgeous large scale scene, a little girl, in the style of dreamy realism, light gold and amber, blue and pink, brilliantly illuminated in the background.",
-    "professional portrait photo of an anthropomorphic cat wearing fancy gentleman hat and jacket walking in autumn forest.",
-    "beautiful lady, freckles, big smile, blue eyes, short ginger hair, dark makeup, wearing a floral blue vest top, soft light, dark grey background",
-    "Spectacular Tiny World in the Transparent Jar On the Table, interior of the Great Hall, Elaborate, Carved Architecture, Anatomy, Symetrical, Geometric and Parameteric Details, Precision Flat line Details, Pattern, Dark fantasy, Dark errie mood and ineffably mysterious mood, Technical design, Intricate Ultra Detail, Ornate Detail, Stylized and Futuristic and Biomorphic Details, Architectural Concept, Low contrast Details, Cinematic Lighting, 8k, by moebius, Fullshot, Epic, Fullshot, Octane render, Unreal ,Photorealistic, Hyperrealism",
-    "anthropomorphic profile of the white snow owl Crystal priestess , art deco painting, pretty and expressive eyes, ornate costume, mythical, ethereal, intricate, elaborate, hyperrealism, hyper detailed, 3D, 8K, Ultra Realistic, high octane, ultra resolution, amazing detail, perfection, In frame, photorealistic, cinematic lighting, visual clarity, shading , Lumen Reflections, Super-Resolution, gigapixel, color grading, retouch, enhanced, PBR, Blender, V-ray, Procreate, zBrush, Unreal Engine 5, cinematic, volumetric, dramatic, neon lighting, wide angle lens ,no digital painting blur",
-    "The parametric hotel lobby is a sleek and modern space with plenty of natural light. The lobby is spacious and open with a variety of seating options. The front desk is a sleek white counter with a parametric design. The walls are a light blue color with parametric patterns. The floor is a light wood color with a parametric design. There are plenty of plants and flowers throughout the space. The overall effect is a calm and relaxing space. occlusion, moody, sunset, concept art, octane rendering, 8k, highly detailed, concept art, highly detailed, beautiful scenery, cinematic, beautiful light, hyperreal, octane render, hdr, long exposure, 8K, realistic, fog, moody, fire and explosions, smoke, 50mm f2.8",
+    "A"
 ]
 
 with gr.Blocks(css="style.css") as demo:
@@ -251,20 +291,21 @@ with gr.Blocks(css="style.css") as demo:
             value=0,
         )
         randomize_seed = gr.Checkbox(label="Randomize seed", value=True)
+        batch_count = gr.Text(label="Batch count", value="1")
         with gr.Row(visible=True):
             width = gr.Slider(
                 label="Width",
                 minimum=256,
                 maximum=MAX_IMAGE_SIZE,
                 step=32,
-                value=1024,
+                value=use_res,
             )
             height = gr.Slider(
                 label="Height",
                 minimum=256,
                 maximum=MAX_IMAGE_SIZE,
                 step=32,
-                value=1024,
+                value=use_res,
             )
         with gr.Row():
             dpms_guidance_scale = gr.Slider(
@@ -277,9 +318,9 @@ with gr.Blocks(css="style.css") as demo:
             dpms_inference_steps = gr.Slider(
                 label="DPM-Solver inference steps",
                 minimum=5,
-                maximum=40,
+                maximum=100,
                 step=1,
-                value=14,
+                value=20,
             )
         with gr.Row():
             sas_guidance_scale = gr.Slider(
@@ -292,7 +333,7 @@ with gr.Blocks(css="style.css") as demo:
             sas_inference_steps = gr.Slider(
                 label="SA-Solver inference steps",
                 minimum=10,
-                maximum=40,
+                maximum=100,
                 step=1,
                 value=25,
             )
@@ -302,7 +343,6 @@ with gr.Blocks(css="style.css") as demo:
         inputs=prompt,
         outputs=[result, seed],
         fn=generate,
-        cache_examples=CACHE_EXAMPLES,
     )
 
     use_negative_prompt.change(
@@ -333,11 +373,12 @@ with gr.Blocks(css="style.css") as demo:
             dpms_inference_steps,
             sas_inference_steps,
             randomize_seed,
+            batch_count,  # Added batch_count
         ],
         outputs=[result, seed],
         api_name="run",
     )
 
 if __name__ == "__main__":
-    demo.queue(max_size=20).launch()
-    # demo.queue(max_size=20).launch(server_name="0.0.0.0", server_port=11900, debug=True)
+    demo.queue(max_size=20).launch(share=False, inbrowser=True)
+
