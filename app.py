@@ -10,6 +10,7 @@ import torch
 from diffusers import ConsistencyDecoderVAE, PixArtAlphaPipeline, DPMSolverMultistepScheduler
 from sa_solver_diffusers import SASolverScheduler
 from transformers import T5EncoderModel
+import time  # Import the time module
 
 # Import argparse for command line argument parsing
 import argparse
@@ -211,13 +212,14 @@ def generate(
     image_paths = []
     
     batch_count_int = int(batch_count)
-    counter = 1
+    counter = 0
     base_prompt = prompt
     base_neg_prompt = negative_prompt
+    print(f"Starting generating {batch_count_int} images ...")
     for _ in range(batch_count_int):
+        start_time = time.time()
         seed = int(randomize_seed_fn(seed, randomize_seed))
         generator = torch.Generator().manual_seed(seed)
-        print(f"generating image no {counter} / {batch_count_int}")
         counter=counter+1
         if schedule == 'DPM-Solver':
             if not isinstance(pipe.scheduler, DPMSolverMultistepScheduler):
@@ -247,7 +249,9 @@ def generate(
             use_resolution_binning=use_resolution_binning,
             output_type="pil",
         ).images
-
+        end_time = time.time()  # Record the end time
+        duration = end_time - start_time  # Calculate the duration
+        print(f"Image {counter} / {batch_count} - avg image generate duration {duration:.2f} seconds")  # Print the duration
         image_paths.extend([save_image(img) for img in images])
 
     return image_paths, seed
