@@ -251,7 +251,8 @@ def generate(
         ).images
         end_time = time.time()  # Record the end time
         duration = end_time - start_time  # Calculate the duration
-        print(f"Image {counter} / {batch_count} - avg image generate duration {duration:.2f} seconds")  # Print the duration
+        avg_step_duration_ms = int((duration / num_inference_steps) * 1000)  # Calculate average step duration in milliseconds
+        print(f"Image {counter} / {batch_count} - avg image duration {duration:.2f} seconds - step duration {avg_step_duration_ms} ms")  # Print the duration
         image_paths.extend([save_image(img) for img in images])
 
     return image_paths, seed
