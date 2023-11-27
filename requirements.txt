@@ -1,7 +1,7 @@
 git+https://github.com/huggingface/diffusers
 accelerate
 transformers
-gradio==4.1.1
+gradio==4.7.1
 Pillow==10.1.0
 sentencepiece==0.1.99
 optimum
