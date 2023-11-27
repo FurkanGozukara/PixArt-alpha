@@ -7,7 +7,7 @@ import gradio as gr
 import numpy as np
 from PIL import Image
 import torch
-from diffusers import PixArtAlphaPipeline, DPMSolverMultistepScheduler
+from diffusers import ConsistencyDecoderVAE, PixArtAlphaPipeline, DPMSolverMultistepScheduler
 from sa_solver_diffusers import SASolverScheduler
 from transformers import T5EncoderModel
 
@@ -20,12 +20,14 @@ parser = argparse.ArgumentParser(description="Gradio App with 8bit and 512model 
 # Rename the arguments to valid Python identifiers
 parser.add_argument("--use_8bit", action="store_true", help="Use 8bit option")
 parser.add_argument("--use_512model", action="store_true", help="Use 512model option")
+parser.add_argument("--use_DallE_VAE", action="store_true", help="Use 512model option")
 
 args = parser.parse_args()
 
 # Access the arguments correctly
 use_8bit = args.use_8bit
 use_512model = args.use_512model
+use_DallE_VAE = args.use_DallE_VAE
 
 DESCRIPTION = """Original Source https://pixart-alpha.github.io/ \n
 			This APP is modified and brought you by SECourses : https://www.patreon.com/SECourses
@@ -133,6 +135,11 @@ if torch.cuda.is_available():
             torch_dtype=torch.float16,
             device_map="auto"
         )
+
+        if use_DallE_VAE:
+            print("Using DALL-E 3 Consistency Decoder")
+            pipe.vae = ConsistencyDecoderVAE.from_pretrained("openai/consistency-decoder", torch_dtype=torch.float16, device_map="auto")
+        # speed-up T5
     else:
         pipe = PixArtAlphaPipeline.from_pretrained(
             model_path,
@@ -146,12 +153,17 @@ if torch.cuda.is_available():
         pipe.to(device)
         print("Loaded on Device!")
 
-    # speed-up T5
+    if use_DallE_VAE:
+        print("Using DALL-E 3 Consistency Decoder")
+        pipe.vae = ConsistencyDecoderVAE.from_pretrained("openai/consistency-decoder", torch_dtype=torch.float16, device_map="auto")
+        # speed-up T5
+
     pipe.text_encoder.to_bettertransformer()
 
     if USE_TORCH_COMPILE:
         pipe.transformer = torch.compile(pipe.transformer, mode="reduce-overhead", fullgraph=True)
         print("Model Compiled!")
+
 
 def create_output_folders():
     base_dir = "outputs"
@@ -195,12 +207,16 @@ def generate(
     progress=gr.Progress(track_tqdm=True),
 ):
     image_paths = []
-    print(f"batch_count {batch_count}")
+    
     batch_count_int = int(batch_count)
+    counter = 1
+    base_prompt = prompt
+    base_neg_prompt = negative_prompt
     for _ in range(batch_count_int):
         seed = int(randomize_seed_fn(seed, randomize_seed))
         generator = torch.Generator().manual_seed(seed)
-
+        print(f"generating image no {counter} / {batch_count_int}")
+        counter=counter+1
         if schedule == 'DPM-Solver':
             if not isinstance(pipe.scheduler, DPMSolverMultistepScheduler):
                 pipe.scheduler = DPMSolverMultistepScheduler()
@@ -216,7 +232,7 @@ def generate(
 
         if not use_negative_prompt:
             negative_prompt = None  # type: ignore
-        prompt, negative_prompt = apply_style(style, prompt, negative_prompt)
+        prompt, negative_prompt = apply_style(style, base_prompt, base_neg_prompt)
 
         images = pipe(
             prompt=prompt,
