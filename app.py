@@ -21,6 +21,7 @@ parser = argparse.ArgumentParser(description="Gradio App with 8bit and 512model 
 parser.add_argument("--use_8bit", action="store_true", help="Use 8bit option")
 parser.add_argument("--use_512model", action="store_true", help="Use 512model option")
 parser.add_argument("--use_DallE_VAE", action="store_true", help="Use 512model option")
+parser.add_argument("--share", action="store_true", help="Generates public Gradio Link")
 
 args = parser.parse_args()
 
@@ -28,6 +29,7 @@ args = parser.parse_args()
 use_8bit = args.use_8bit
 use_512model = args.use_512model
 use_DallE_VAE = args.use_DallE_VAE
+use_Share = args.share
 
 DESCRIPTION = """Original Source https://pixart-alpha.github.io/ \n
 			This APP is modified and brought you by SECourses : https://www.patreon.com/SECourses
@@ -396,5 +398,5 @@ with gr.Blocks(css="style.css") as demo:
     )
 
 if __name__ == "__main__":
-    demo.queue(max_size=20).launch(share=False, inbrowser=True)
+    demo.queue(max_size=20).launch(share=use_Share, inbrowser=True)
 
