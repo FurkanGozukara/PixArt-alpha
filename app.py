@@ -15,6 +15,13 @@ import time  # Import the time module
 # Import argparse for command line argument parsing
 import argparse
 
+custom_css = """
+img.data-testid {
+    width: 1024px;
+    height: 1024px;
+}
+"""
+
 # Define command line arguments
 parser = argparse.ArgumentParser(description="Gradio App with 8bit and 512model options")
 
@@ -261,7 +268,7 @@ def generate(
 examples = [
     "A"
 ]
-
+gallery_size=1
 with gr.Blocks() as demo:
     gr.Markdown(DESCRIPTION)
     gr.DuplicateButton(
@@ -279,7 +286,7 @@ with gr.Blocks() as demo:
                 container=True,
             )
             run_button = gr.Button("Run", scale=0)
-        result = gr.Gallery(label="Result", columns=NUM_IMAGES_PER_PROMPT, show_label=False)
+        result = gr.Gallery(label="Result", columns=1, show_label=False, scale=2,allow_preview=True,preview=True,object_fit="scale-down")
     with gr.Accordion("Advanced options", open=False):
         with gr.Row():
             use_negative_prompt = gr.Checkbox(label="Use negative prompt", value=False)
