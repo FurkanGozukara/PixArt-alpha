@@ -262,7 +262,7 @@ examples = [
     "A"
 ]
 
-with gr.Blocks(css="style.css") as demo:
+with gr.Blocks() as demo:
     gr.Markdown(DESCRIPTION)
     gr.DuplicateButton(
         value="Duplicate Space for private use",
@@ -274,9 +274,9 @@ with gr.Blocks(css="style.css") as demo:
             prompt = gr.Text(
                 label="Prompt",
                 show_label=False,
-                max_lines=1,
+                max_lines=10,
                 placeholder="Enter your prompt",
-                container=False,
+                container=True,
             )
             run_button = gr.Button("Run", scale=0)
         result = gr.Gallery(label="Result", columns=NUM_IMAGES_PER_PROMPT, show_label=False)
