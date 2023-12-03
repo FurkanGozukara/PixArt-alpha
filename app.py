@@ -30,6 +30,7 @@ parser.add_argument("--use_8bit", action="store_true", help="Use 8bit option")
 parser.add_argument("--use_512model", action="store_true", help="Use 512model option")
 parser.add_argument("--use_DallE_VAE", action="store_true", help="Use 512model option")
 parser.add_argument("--share", action="store_true", help="Generates public Gradio Link")
+parser.add_argument("--off_load_CPU", action="store_true", help="Off Load To CPU")
 
 args = parser.parse_args()
 
@@ -38,7 +39,8 @@ use_8bit = args.use_8bit
 use_512model = args.use_512model
 use_DallE_VAE = args.use_DallE_VAE
 use_Share = args.share
-
+off_load_CPU = int(args.off_load_CPU)
+print(f"off_load_CPU {off_load_CPU}")
 DESCRIPTION = """Original Source https://pixart-alpha.github.io/ \n
 			This APP is modified and brought you by SECourses : https://www.patreon.com/SECourses
         """
@@ -48,7 +50,7 @@ if not torch.cuda.is_available():
 MAX_SEED = np.iinfo(np.int32).max
 MAX_IMAGE_SIZE = int(os.getenv("MAX_IMAGE_SIZE", "2048"))
 USE_TORCH_COMPILE = os.getenv("USE_TORCH_COMPILE", "0") == "1"
-ENABLE_CPU_OFFLOAD = os.getenv("ENABLE_CPU_OFFLOAD", "0") == "1"
+ENABLE_CPU_OFFLOAD = off_load_CPU
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
