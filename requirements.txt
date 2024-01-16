@@ -1,4 +1,4 @@
-git+https://github.com/huggingface/diffusers
+diffusers==0.24.0
 accelerate
 transformers
 gradio==4.7.1
@@ -8,6 +8,6 @@ optimum
 beautifulsoup4
 ftfy
 --extra-index-url https://download.pytorch.org/whl/cu118
-torch==2.0.1
+torch==2.1.1
 
 
