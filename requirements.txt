@@ -1,7 +1,7 @@
 diffusers==0.24.0
 accelerate
 transformers
-gradio==4.7.1
+gradio
 Pillow==10.1.0
 sentencepiece==0.1.99
 optimum
